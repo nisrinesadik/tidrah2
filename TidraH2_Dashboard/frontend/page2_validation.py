@@ -1,43 +1,38 @@
-import tkinter as tk
-from tkinter import messagebox
+import streamlit as st
 from backend.data_fetcher import fetch_pvgis_hourly
 from backend.wind_model_detailed import run_full_wind_model
 from backend.solar_model_detailed import run_full_solar_model
 
-class Page2Validation(tk.Frame):
-    def __init__(self, parent, controller):
-        super().__init__(parent)
-        self.controller = controller
+def render():
+    st.header("Step 2: Validating Site and Preparing Data")
 
-        self.status_label = tk.Label(self, text="Step 2: Validating site and preparing data")
-        self.status_label.pack(pady=10)
+    # Initialize shared data if missing
+    if "shared_data" not in st.session_state:
+        st.session_state.shared_data = {}
 
-        self.validate_button = tk.Button(self, text="Validate Tech Data", command=self.run_validation)
-        self.validate_button.pack(pady=5)
+    shared_data = st.session_state.shared_data
 
-        self.next_button = tk.Button(self, text="Next", command=self.goto_next)
-        self.next_button.pack(pady=10)
-        self.next_button.config(state="disabled")
+    # Status placeholder
+    status_placeholder = st.empty()
 
-    def run_validation(self):
-        page1 = self.controller.frames["Page1Inputs"]
+    status_placeholder.info("Step 2: Validating site and preparing data")
 
+    if st.button("Validate Tech Data"):
         try:
-            lat = float(page1.latitude_entry.get())
-            lon = float(page1.longitude_entry.get())
-            app_type = page1.application_type.get()
-            h2_target = float(page1.h2_output.get())  # kg/day
-            capex = float(page1.capex.get())
-            pv_area = float(page1.pv_area.get())
-            electrolyzer_type = page1.electrolyzer.get()
+            lat = float(shared_data.get("latitude", ""))
+            lon = float(shared_data.get("longitude", ""))
+            app_type = shared_data.get("application_type", "")
+            h2_target = float(shared_data.get("h2_output", ""))
+            capex = float(shared_data.get("capex", ""))
+            pv_area = float(shared_data.get("pv_area", ""))
+            electrolyzer_type = shared_data.get("electrolyzer", "")
         except ValueError:
-            messagebox.showerror("Error", "Please enter valid numeric inputs in Page 1.")
+            st.error("Please enter valid numeric inputs in Page 1.")
             return
 
         if not app_type or not electrolyzer_type:
-            messagebox.showerror("Error", "Please select valid options for application type and electrolyzer.")
+            st.error("Please select valid options for application type and electrolyzer.")
             return
-
 
         # Step 2: Assign hub height
         hub_height = 60 if app_type == "Commercial" else 80
@@ -49,15 +44,15 @@ class Page2Validation(tk.Frame):
         annual_kWh = h2_target * energy_per_kg * 365
 
         # Step 4: Run wind model
-        self.status_label.config(text="Running wind energy model...")
+        status_placeholder.info("Running wind energy model...")
         try:
             wind_result = run_full_wind_model(lat, lon, hub_height, annual_kWh)
         except Exception as e:
-            messagebox.showerror("Wind Modeling Error", str(e))
+            st.error(f"Wind Modeling Error: {str(e)}")
             return
 
         # Step 5: Run solar model
-        self.status_label.config(text="Running solar energy model...")
+        status_placeholder.info("Running solar energy model...")
         try:
             solar_result = run_full_solar_model(
                 lat=lat,
@@ -70,7 +65,7 @@ class Page2Validation(tk.Frame):
                 rated_power_kw=pv_area * 0.15
             )
         except Exception as e:
-            messagebox.showerror("Solar Modeling Error", str(e))
+            st.error(f"Solar Modeling Error: {str(e)}")
             return
 
         # Step 6: Fixed financial parameters
@@ -78,7 +73,7 @@ class Page2Validation(tk.Frame):
         lifetime = 20
 
         # Step 7: Store shared state
-        self.controller.shared_data = {
+        shared_data.update({
             "coordinates": (lat, lon),
             "hub_height": hub_height,
             "capex_limit": capex,
@@ -91,11 +86,20 @@ class Page2Validation(tk.Frame):
             "df_hourly_solar": solar_result["df_hourly"],
             "df_daily_solar": solar_result["df_daily"],
             "discount_rate": discount_rate,
-            "lifetime": lifetime
-        }
+            "lifetime": lifetime,
+            "validation_complete": True
+        })
 
-        self.status_label.config(text="All data validated successfully.")
-        self.next_button.config(state="normal")
+        st.session_state.shared_data = shared_data
 
-    def goto_next(self):
-        self.controller.show_frame("Page3Simulation")
+        status_placeholder.success("All data validated successfully.")
+
+    # Next button only enabled after validation
+    validation_complete = shared_data.get("validation_complete", False)
+
+    if validation_complete:
+        if st.button("Next"):
+            st.session_state.current_page = "Simulation"
+            st.rerun()
+    else:
+        st.button("Next", disabled=True)
